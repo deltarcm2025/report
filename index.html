@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical Analytics Report</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css"/>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; }
+        .tab-button { transition: all 0.2s ease-in-out; }
+        .tab-button.active { border-color: #3b82f6; background-color: #eff6ff; color: #3b82f6; font-weight: 600; }
+        .payer-button { transition: all 0.2s ease-in-out; }
+        .payer-button.active { background-color: #3b82f6; color: white; }
+        .chart-container, .kpi-card { background-color: white; border-radius: 0.75rem; box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1); padding: 1rem; }
+        .table-container { max-height: 450px; overflow-y: auto; }
+        /* Styles for sticky table header and first column */
+        .sticky-table th { position: sticky; top: 0; z-index: 2; background-color: #f1f5f9; }
+        .sticky-table td:first-child, .sticky-table th:first-child { position: sticky; left: 0; z-index: 1; background-color: #f8fafc; }
+        .sticky-table th:first-child { z-index: 3; }
+
+        @media print {
+            body, html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            #uploadSection, #global-controls, #tab-nav, #startOverButton, #downloadPdfButton { display: none; }
+            .chart-container, .kpi-card { box-shadow: none; border: 1px solid #e2e8f0; page-break-inside: avoid; }
+            .tab-panel { display: block !important; page-break-before: always; }
+            #summary-tab { page-break-before: auto; }
+            .grid { grid-template-columns: 1fr !important; }
+            main { margin: 0; padding: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="w-full max-w-7xl mx-auto p-4 md:p-6">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl font-bold text-slate-800">Medical Analytics Report</h1>
+            <p id="header-subtitle" class="text-slate-500 mt-1">Upload your structured CSV file(s) to generate insights.</p>
+        </header>
+
+        <!-- File Upload Section -->
+        <section id="uploadSection" class="max-w-xl mx-auto bg-white p-8 rounded-xl shadow-lg">
+            <div id="dropZone" class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-50 cursor-pointer hover:border-blue-500 transition-colors">
+                <input type="file" id="fileInput" class="hidden" accept=".csv" multiple>
+                <p class="text-slate-600 font-medium">Drag & drop your CSV files here (up to 10)</p>
+                <p class="text-slate-500 text-sm my-2">or</p>
+                <button type="button" id="browseButton" class="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors">Browse Files</button>
+            </div>
+             <p id="fileName" class="text-slate-500 text-sm mt-4 text-center"></p>
+        </section>
+
+        <!-- Dashboard Section -->
+        <main id="dashboardSection" class="hidden">
+            <!-- Global Controls -->
+            <section id="global-controls" class="mb-6">
+                 <div class="flex flex-col sm:flex-row justify-between items-center mb-4 bg-white p-4 rounded-xl shadow-md gap-4">
+                     <div class="w-full sm:w-auto">
+                        <label for="dateRangePicker" class="block text-sm font-medium text-slate-700 mb-1">Date Range</label>
+                        <input id="dateRangePicker" type="text" class="w-full border-slate-300 rounded-md shadow-sm text-sm">
+                    </div>
+                     <div class="w-full sm:w-auto">
+                        <label for="providerFilter" class="block text-sm font-medium text-slate-700 mb-1">Provider</label>
+                        <select id="providerFilter" class="w-full border-slate-300 rounded-md shadow-sm text-sm"></select>
+                    </div>
+                     <div class="w-full sm:w-auto">
+                        <label for="officeFilter" class="block text-sm font-medium text-slate-700 mb-1">Office</label>
+                        <select id="officeFilter" class="w-full border-slate-300 rounded-md shadow-sm text-sm"></select>
+                    </div>
+                    <div class="flex gap-2 w-full sm:w-auto self-end">
+                        <button id="startOverButton" class="w-full px-4 py-2 bg-slate-600 text-white rounded-lg font-semibold hover:bg-slate-700 transition-colors text-sm">Upload New</button>
+                    </div>
+                 </div>
+            </section>
+            
+            <!-- Tab Navigation -->
+            <nav id="tab-nav" class="flex border-b border-slate-200 mb-6 overflow-x-auto">
+                <button data-tab="summary" class="tab-button active flex-shrink-0 py-3 px-4 text-sm font-medium text-slate-500 border-b-2 border-transparent hover:border-slate-300 hover:text-slate-700">Executive Summary</button>
+                <button data-tab="payer" class="tab-button flex-shrink-0 py-3 px-4 text-sm font-medium text-slate-500 border-b-2 border-transparent hover:border-slate-300 hover:text-slate-700">Payer Performance</button>
+                <button data-tab="procedure" class="tab-button flex-shrink-0 py-3 px-4 text-sm font-medium text-slate-500 border-b-2 border-transparent hover:border-slate-300 hover:text-slate-700">Procedure Analysis</button>
+                <button data-tab="matrix" class="tab-button flex-shrink-0 py-3 px-4 text-sm font-medium text-slate-500 border-b-2 border-transparent hover:border-slate-300 hover:text-slate-700">Reimbursement Matrix</button>
+                <button data-tab="opportunities" class="tab-button flex-shrink-0 py-3 px-4 text-sm font-medium text-slate-500 border-b-2 border-transparent hover:border-slate-300 hover:text-slate-700">Opportunities & Collections</button>
+            </nav>
+
+            <!-- Tab Content -->
+            <div id="tab-content">
+                <!-- Executive Summary -->
+                <div id="summary-tab" class="tab-panel">
+                    <section id="kpi-scorecard" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6 text-center mb-6">
+                        <div class="kpi-card"><h3 class="text-slate-500 font-medium">Total Charges</h3><p id="kpi-total-charges" class="text-3xl font-bold text-slate-800 mt-1">$0</p></div>
+                        <div class="kpi-card"><h3 class="text-slate-500 font-medium">Total Collections</h3><p id="kpi-total-collections" class="text-3xl font-bold text-slate-800 mt-1">$0</p></div>
+                        <div class="kpi-card">
+                            <h3 class="text-slate-500 font-medium">Collection Rate</h3>
+                            <p id="kpi-collection-rate" class="text-3xl font-bold text-green-600 mt-1">0%</p>
+                            <p class="text-xs text-slate-400 mt-2">The % of total charges that has been collected from payers and patients.</p>
+                        </div>
+                         <div class="kpi-card">
+                            <h3 class="text-slate-500 font-medium">Patient Visits</h3>
+                            <p id="kpi-patient-visits" class="text-3xl font-bold text-slate-800 mt-1">0</p>
+                            <p class="text-xs text-slate-400 mt-2">Unique patient encounters on unique dates.</p>
+                        </div>
+                    </section>
+                    <section class="chart-container">
+                        <h3 class="font-bold text-lg text-slate-800 mb-4">Financial Performance Over Time</h3>
+                        <div class="h-80"><canvas id="financialChart"></canvas></div>
+                    </section>
+                </div>
+                <!-- Payer Performance -->
+                <div id="payer-tab" class="tab-panel hidden">
+                    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="chart-container"><h3 class="font-bold text-lg text-slate-800 mb-4">Payers by Collections (Logarithmic Scale)</h3><div class="h-96"><canvas id="payerCollectionsChart"></canvas></div></div>
+                        <div class="chart-container"><h3 class="font-bold text-lg text-slate-800 mb-4">Top 5 Payers by Collection Rate</h3><div class="h-96"><canvas id="payerRateChart"></canvas></div></div>
+                    </section>
+                </div>
+                <!-- Procedure Analysis -->
+                <div id="procedure-tab" class="tab-panel hidden">
+                    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="chart-container"><h3 class="font-bold text-lg text-slate-800 mb-4">Top 20 Procedures by Revenue</h3><div class="table-container" id="revenueTableContainer"></div></div>
+                        <div class="chart-container"><h3 class="font-bold text-lg text-slate-800 mb-4">Top 20 Procedures by Volume</h3><div class="table-container" id="volumeTableContainer"></div></div>
+                    </section>
+                </div>
+                 <!-- Reimbursement Matrix -->
+                <div id="matrix-tab" class="tab-panel hidden">
+                     <section class="chart-container">
+                        <h3 class="font-bold text-lg text-slate-800 mb-4">Payer Reimbursement Matrix (Average Payment)</h3>
+                        <p class="text-sm text-slate-500 mb-4">Comparing average payment by top payers for top CPT codes. Hover over a cell to see the payment range and number of claims.</p>
+                        <div class="table-container" id="reimbursementMatrixContainer"></div>
+                    </section>
+                </div>
+                <!-- Opportunities & Collections -->
+                <div id="opportunities-tab" class="tab-panel hidden">
+                    <section class="mb-6 chart-container">
+                        <h3 class="font-bold text-lg text-slate-800 mb-2">Payer CPT Analysis</h3>
+                        <div id="payerButtonContainer" class="flex flex-wrap items-center gap-2 mb-4"></div>
+                        <div class="h-96"><canvas id="payerCptChart"></canvas></div>
+                    </section>
+                    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div class="chart-container">
+                            <h3 class="font-bold text-lg text-slate-800 mb-4">Top 30 Patients by Outstanding Balance</h3>
+                            <div class="table-container" id="unpaidPatientsTableContainer"></div>
+                        </div>
+                        <div class="chart-container">
+                            <h3 class="font-bold text-lg text-slate-800 mb-4">Potential Claim Denials (All CPTs)</h3>
+                             <p class="text-sm text-slate-500 mb-4">Charged services with zero payment, ranked by total charge amount at risk.</p>
+                            <div class="table-container" id="denialsTableContainer"></div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+
+<script>
+    // --- DOM ELEMENTS ---
+    const uploadSection = document.getElementById('uploadSection');
+    const dashboardSection = document.getElementById('dashboardSection');
+    const fileInput = document.getElementById('fileInput');
+    const dropZone = document.getElementById('dropZone');
+    const browseButton = document.getElementById('browseButton');
+    const fileNameDisplay = document.getElementById('fileName');
+    const startOverButton = document.getElementById('startOverButton');
+    const headerSubtitle = document.getElementById('header-subtitle');
+    const tabNav = document.getElementById('tab-nav');
+    const tabContent = document.getElementById('tab-content');
+    const payerButtonContainer = document.getElementById('payerButtonContainer');
+
+    // --- GLOBAL STATE ---
+    let fullData = [];
+    let chartInstances = {};
+    let datePickerInstance;
+
+    // --- INITIALIZATION ---
+    function init() {
+        browseButton.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('border-blue-500'); });
+        dropZone.addEventListener('dragleave', (e) => { e.preventDefault(); dropZone.classList.remove('border-blue-500'); });
+        dropZone.addEventListener('drop', (e) => { e.preventDefault(); handleFiles(e.dataTransfer.files); });
+        startOverButton.addEventListener('click', resetDashboard);
+        tabNav.addEventListener('click', handleTabClick);
+        payerButtonContainer.addEventListener('click', handlePayerButtonClick);
+    }
+    
+    function handleFiles(files) {
+        if (files.length === 0) return;
+        if (files.length > 10) {
+            alert('You can upload a maximum of 10 files at a time.');
+            return;
+        }
+
+        const promises = [...files].map(file => new Promise((resolve, reject) => {
+            Papa.parse(file, {
+                header: true, skipEmptyLines: true, dynamicTyping: false,
+                complete: results => resolve(results.data),
+                error: err => reject(err)
+            });
+        }));
+
+        Promise.all(promises).then(results => {
+            const combinedData = results.flat();
+            fileNameDisplay.textContent = `${files.length} file(s) selected.`;
+            headerSubtitle.textContent = `Consolidated Analytics Report`;
+            processData(combinedData);
+            uploadSection.classList.add('hidden');
+            dashboardSection.classList.remove('hidden');
+            setupFiltersAndDashboard();
+        }).catch(err => alert('Error parsing one or more files: ' + err.message));
+    }
+
+    function resetDashboard() {
+        dashboardSection.classList.add('hidden');
+        uploadSection.classList.remove('hidden');
+        fileInput.value = '';
+        fileNameDisplay.textContent = '';
+        headerSubtitle.textContent = 'Upload your structured CSV file(s) to generate insights.';
+        Object.values(chartInstances).forEach(chart => chart.destroy());
+        if (datePickerInstance) datePickerInstance.destroy();
+        fullData = [];
+    }
+
+    // --- DATA & FILTERS ---
+    function processData(data) {
+        fullData = data.map(row => {
+            let insurance = row.Insurance || 'Unknown';
+            const lowerInsurance = insurance.toLowerCase();
+            if (lowerInsurance.includes('united health') || lowerInsurance.includes('uhc')) {
+                insurance = 'United Healthcare';
+            }
+            const totalCollections = Math.abs(parseFloat(row.Insurance_Payment) || 0) + Math.abs(parseFloat(row.Patient_Payment) || 0);
+
+            return {
+                ...row,
+                Insurance: insurance,
+                Charges: parseFloat(row.Charges) || 0,
+                Balance: parseFloat(row.Balance) || 0,
+                Date_of_Service: new Date(row.Date_of_Service),
+                Total_Collections: totalCollections
+            };
+        });
+    }
+    
+    function setupFiltersAndDashboard() {
+        const providers = ['All Providers', ...new Set(fullData.map(r => r.Provider).filter(Boolean))].sort();
+        const offices = ['All Offices', ...new Set(fullData.map(r => r.Office).filter(Boolean))].sort();
+        
+        const providerFilter = document.getElementById('providerFilter');
+        const officeFilter = document.getElementById('officeFilter');
+
+        providerFilter.innerHTML = providers.map(p => `<option value="${p}">${p}</option>`).join('');
+        officeFilter.innerHTML = offices.map(o => `<option value="${o}">${o}</option>`).join('');
+
+        const minDate = new Date(Math.min(...fullData.map(r => r.Date_of_Service.getTime())));
+        const maxDate = new Date(Math.max(...fullData.map(r => r.Date_of_Service.getTime())));
+
+        datePickerInstance = new Litepicker({ 
+            element: document.getElementById('dateRangePicker'),
+            singleMode: false, startDate: minDate, endDate: maxDate,
+            setup: (picker) => picker.on('selected', (d1, d2) => updateAllVisuals())
+        });
+
+        providerFilter.addEventListener('change', updateAllVisuals);
+        officeFilter.addEventListener('change', updateAllVisuals);
+        
+        updateAllVisuals();
+    }
+    
+    function getFilteredData() {
+        const startDate = datePickerInstance.getStartDate()?.toJSDate();
+        const endDate = datePickerInstance.getEndDate()?.toJSDate();
+        const selectedProvider = document.getElementById('providerFilter').value;
+        const selectedOffice = document.getElementById('officeFilter').value;
+
+        return fullData.filter(row => {
+            const date = row.Date_of_Service;
+            const isDateInRange = (!startDate || date >= startDate) && (!endDate || date <= endDate);
+            const isProviderMatch = selectedProvider === 'All Providers' || row.Provider === selectedProvider;
+            const isOfficeMatch = selectedOffice === 'All Offices' || row.Office === selectedOffice;
+            return isDateInRange && isProviderMatch && isOfficeMatch;
+        });
+    }
+
+    // --- UI & TABS ---
+    function handleTabClick(e) {
+        if (e.target.tagName !== 'BUTTON') return;
+        
+        const tab = e.target.dataset.tab;
+        
+        tabNav.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
+        e.target.classList.add('active');
+
+        tabContent.querySelectorAll('.tab-panel').forEach(panel => panel.classList.add('hidden'));
+        document.getElementById(`${tab}-tab`).classList.remove('hidden');
+    }
+
+    function handlePayerButtonClick(e) {
+        if(e.target.tagName !== 'BUTTON') return;
+        payerButtonContainer.querySelectorAll('.payer-button').forEach(btn => btn.classList.remove('active'));
+        e.target.classList.add('active');
+        renderPayerCptChart(getFilteredData());
+    }
+
+    // --- VISUALIZATION UPDATES ---
+    function updateAllVisuals() {
+        const data = getFilteredData();
+        updateKPIs(data);
+        updateFinancialChart(data);
+        updatePayerCharts(data);
+        updateProcedureTables(data);
+        updateReimbursementMatrix(data);
+        updateOpportunities(data); 
+    }
+    
+    const formatCurrency = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(num);
+    const formatPercent = (num) => new Intl.NumberFormat('en-US', { style: 'percent', maximumFractionDigits: 1 }).format(num);
+
+    function updateKPIs(data) {
+        const totalCharges = data.reduce((s, r) => s + r.Charges, 0);
+        const totalCollections = data.reduce((s, r) => s + r.Total_Collections, 0);
+        const collectionRate = totalCharges > 0 ? totalCollections / totalCharges : 0;
+        const uniqueVisits = new Set(data.map(r => `${r.Patient_ID}|${r.Date_of_Service.toDateString()}`)).size;
+        
+        document.getElementById('kpi-total-charges').textContent = formatCurrency(totalCharges);
+        document.getElementById('kpi-total-collections').textContent = formatCurrency(totalCollections);
+        document.getElementById('kpi-collection-rate').textContent = formatPercent(collectionRate);
+        document.getElementById('kpi-patient-visits').textContent = uniqueVisits;
+    }
+
+    function createOrUpdateChart(id, type, data, options) {
+        const ctx = document.getElementById(id).getContext('2d');
+        if (chartInstances[id]) chartInstances[id].destroy();
+        chartInstances[id] = new Chart(ctx, { type, data, options });
+    }
+
+    function updateFinancialChart(data) {
+        const monthlyData = data.reduce((acc, row) => {
+            const month = `${row.Date_of_Service.getFullYear()}-${String(row.Date_of_Service.getMonth() + 1).padStart(2, '0')}`;
+            acc[month] = acc[month] || { charges: 0, collections: 0 };
+            acc[month].charges += row.Charges;
+            acc[month].collections += row.Total_Collections;
+            return acc;
+        }, {});
+
+        const sortedMonths = Object.keys(monthlyData).sort();
+        const labels = sortedMonths.map(m => new Date(m+'-02').toLocaleString('default', { month: 'short', year: '2-digit' }));
+        createOrUpdateChart('financialChart', 'bar', {
+            labels, datasets: [{
+                label: 'Total Charges', data: sortedMonths.map(m => monthlyData[m].charges),
+                backgroundColor: 'rgba(59, 130, 246, 0.5)', order: 2
+            },{
+                label: 'Total Collections', data: sortedMonths.map(m => monthlyData[m].collections),
+                backgroundColor: 'rgba(22, 163, 74, 1)', type: 'line', tension: 0.2, order: 1
+            }]
+        }, { responsive: true, maintainAspectRatio: false });
+    }
+
+    function updatePayerCharts(data) {
+        const payerData = data.reduce((acc, row) => {
+            const payer = row.Insurance || 'Unknown';
+            acc[payer] = acc[payer] || { charges: 0, collections: 0 };
+            acc[payer].charges += row.Charges;
+            acc[payer].collections += row.Total_Collections;
+            return acc;
+        }, {});
+
+        const sortedByCollections = Object.entries(payerData).sort((a,b) => b[1].collections - a[1].collections);
+        createOrUpdateChart('payerCollectionsChart', 'bar', {
+            labels: sortedByCollections.map(p => p[0]),
+            datasets: [{ label: 'Total Collections', data: sortedByCollections.map(p => p[1].collections), backgroundColor: 'rgba(22, 163, 74, 0.6)' }]
+        }, { indexAxis: 'y', responsive: true, maintainAspectRatio: false, scales: { x: { type: 'logarithmic' }, y: { ticks: { font: {size: 10 } } } } });
+
+        const top5ByRate = Object.entries(payerData)
+            .map(([name, d]) => ({ name, rate: d.charges > 0 ? d.collections / d.charges : 0 }))
+            .sort((a,b) => b.rate - a.rate).slice(0, 5);
+        createOrUpdateChart('payerRateChart', 'bar', {
+            labels: top5ByRate.map(p => p.name),
+            datasets: [{ label: 'Collection Rate', data: top5ByRate.map(p => p.rate), backgroundColor: 'rgba(22, 163, 74, 0.6)' }]
+        }, { indexAxis: 'y', responsive: true, maintainAspectRatio: false, scales: { x: { ticks: { callback: (v) => formatPercent(v) } } } });
+    }
+    
+    function createTable(headers, rows, isMatrix = false) {
+        let tableClass = isMatrix ? 'sticky-table' : '';
+        let table = `<table class="w-full text-sm text-left text-slate-500 ${tableClass}"><thead><tr class="text-xs text-slate-700 uppercase bg-slate-50">`;
+        headers.forEach((h, i) => table += `<th class="px-4 py-2 ${isMatrix ? 'bg-slate-100' : ''}">${h}</th>`);
+        table += '</tr></thead><tbody>';
+        rows.forEach(row => {
+            table += '<tr class="bg-white border-b hover:bg-slate-50">';
+            row.forEach((cell, i) => {
+                let cellContent = cell;
+                let title = '';
+                if (isMatrix && typeof cell === 'object' && cell !== null) {
+                    cellContent = cell.value;
+                    title = `title="${cell.title}"`;
+                }
+                table += `<td class="px-4 py-2 font-medium text-slate-900" ${title}>${cellContent}</td>`;
+            });
+            table += '</tr>';
+        });
+        return table + '</tbody></table>';
+    };
+
+    function updateProcedureTables(data) {
+        const procData = data.reduce((acc, row) => {
+            const cpt = row.CPT || 'N/A';
+            acc[cpt] = acc[cpt] || { collections: 0, count: 0 };
+            acc[cpt].collections += row.Total_Collections;
+            acc[cpt].count++;
+            return acc;
+        }, {});
+
+        const sortedByRevenue = Object.entries(procData).sort((a, b) => b[1].collections - a[1].collections).slice(0, 20);
+        const sortedByVolume = Object.entries(procData).sort((a, b) => b[1].count - a[1].count).slice(0, 20);
+            
+        document.getElementById('revenueTableContainer').innerHTML = createTable(
+            ['CPT Code', 'Total Collections', 'Avg. Collection'],
+            sortedByRevenue.map(([c, d]) => [c, formatCurrency(d.collections), formatCurrency(d.collections / d.count)])
+        );
+        document.getElementById('volumeTableContainer').innerHTML = createTable(
+            ['CPT Code', 'Times Performed'],
+            sortedByVolume.map(([c, d]) => [c, d.count])
+        );
+    }
+    
+     function updateReimbursementMatrix(data) {
+        const payerData = data.reduce((acc, row) => {
+            const payer = row.Insurance || 'Unknown';
+            acc[payer] = (acc[payer] || 0) + row.Total_Collections;
+            return acc;
+        }, {});
+        const topPayers = Object.entries(payerData).sort((a,b) => b[1] - a[1]).slice(0,10).map(p => p[0]);
+
+        const procData = data.reduce((acc, row) => {
+            const cpt = row.CPT || 'N/A';
+            acc[cpt] = (acc[cpt] || 0) + 1;
+            return acc;
+        }, {});
+        const topCpts = Object.entries(procData).sort((a,b) => b[1] - a[1]).slice(0,25).map(p => p[0]);
+
+        const matrixData = data.reduce((acc, row) => {
+            if (row.Total_Collections > 0) {
+                const key = `${row.CPT}|${row.Insurance}`;
+                acc[key] = acc[key] || [];
+                acc[key].push(row.Total_Collections);
+            }
+            return acc;
+        }, {});
+
+        const headers = ['CPT Code', ...topPayers];
+        const rows = topCpts.map(cpt => {
+            const row = [{value: cpt, title: ''}];
+            topPayers.forEach(payer => {
+                const key = `${cpt}|${payer}`;
+                const payments = matrixData[key];
+                if (payments && payments.length > 0) {
+                    const sum = payments.reduce((a,b) => a+b, 0);
+                    const avg = sum / payments.length;
+                    const min = Math.min(...payments);
+                    const max = Math.max(...payments);
+                    row.push({
+                        value: formatCurrency(avg), 
+                        title: `Avg: ${formatCurrency(avg)} | Range: ${formatCurrency(min)} - ${formatCurrency(max)} | Based on ${payments.length} claims`
+                    });
+                } else {
+                    row.push({value: '-', title: 'No payments'});
+                }
+            });
+            return row;
+        });
+
+        document.getElementById('reimbursementMatrixContainer').innerHTML = createTable(headers, rows, true);
+    }
+
+    function updateOpportunities(data) {
+        const payerCollections = data.reduce((acc, row) => {
+            const payer = row.Insurance || 'Unknown';
+            acc[payer] = (acc[payer] || 0) + row.Total_Collections;
+            return acc;
+        }, {});
+        const sortedPayers = Object.entries(payerCollections).sort((a,b)=>b[1]-a[1]).map(p=>p[0]);
+
+        payerButtonContainer.innerHTML = sortedPayers.map((p, i) => `<button data-payer="${p}" class="payer-button ${i === 0 ? 'active' : ''} text-sm px-3 py-1 bg-slate-200 text-slate-700 rounded-full hover:bg-slate-300">${p}</button>`).join('');
+        
+        renderPayerCptChart(data);
+
+        // Unpaid Patients Table
+        const unpaidPatientData = data.filter(r => r.Balance > 0.01)
+            .reduce((acc, row) => {
+                const patient = row.Patient_Name || 'Unknown';
+                acc[patient] = (acc[patient] || 0) + row.Balance;
+                return acc;
+            }, {});
+
+        const sortedUnpaidPatients = Object.entries(unpaidPatientData)
+            .sort((a,b) => b[1] - a[1])
+            .slice(0, 30);
+            
+        document.getElementById('unpaidPatientsTableContainer').innerHTML = createTable(
+            ['Patient Name', 'Total Outstanding Balance'],
+            sortedUnpaidPatients.map(([name, balance]) => [name, formatCurrency(balance)])
+        );
+        
+        // Potential Denials
+        const denialData = data.filter(r => r.Total_Collections === 0 && r.Charges > 0)
+            .reduce((acc, row) => {
+                const key = `${row.CPT}|${row.Insurance}`;
+                acc[key] = acc[key] || { count: 0, totalCharges: 0, CPT: row.CPT, Payer: row.Insurance };
+                acc[key].count++;
+                acc[key].totalCharges += row.Charges;
+                return acc;
+            }, {});
+        
+        const sortedDenials = Object.values(denialData).sort((a,b) => b.totalCharges - a.totalCharges); // No slice
+        
+        document.getElementById('denialsTableContainer').innerHTML = createTable(
+            ['CPT', 'Payer', 'Denied Count', 'Charges at Risk'],
+            sortedDenials.map(d => [d.CPT, d.Payer, d.count, formatCurrency(d.totalCharges)])
+        );
+    }
+
+    function renderPayerCptChart(data) {
+        const activeButton = payerButtonContainer.querySelector('.active');
+        if (!activeButton) return;
+        const selectedPayer = activeButton.dataset.payer;
+        
+        const payerData = data.filter(r => r.Insurance === selectedPayer);
+
+        const cptData = payerData.reduce((acc, row) => {
+            const cpt = row.CPT || 'N/A';
+            acc[cpt] = (acc[cpt] || 0) + row.Total_Collections;
+            return acc;
+        }, {});
+        
+        const top10Cpts = Object.entries(cptData).sort((a,b) => b[1] - a[1]).slice(0,10);
+
+        createOrUpdateChart('payerCptChart', 'bar', {
+            labels: top10Cpts.map(c => c[0]),
+            datasets: [{
+                label: `Top 10 CPT Collections for ${selectedPayer}`,
+                data: top10Cpts.map(c => c[1]),
+                backgroundColor: `rgba(139, 92, 246, 0.7)` // A nice purple
+            }]
+        }, { responsive: true, maintainAspectRatio: false, indexAxis: 'y', scales: { x: { ticks: { callback: (v) => formatCurrency(v) } } } });
+    }
+    
+    init();
+</script>
+</body>
+</html>
+
